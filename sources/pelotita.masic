@@ -1,0 +1,287 @@
+;---------------------------------------------------
+;-------------- VECTORES INTERRUPCIÓN --------------
+;---------------------------------------------------
+.d16 start
+
+
+
+;---------------------------------------------------
+;-------------------- MACROS -----------------------
+;---------------------------------------------------
+
+;---------------------------------------------------
+; SHIFTEAR UN DATO DE 16 BITS
+; addr: dirección del dato en memoria.
+;---------------------------------------------------
+.macro SH16 addr
+    load %addr
+    shl
+    store %addr
+    load %addr+1
+    rcl
+    store %addr+1
+.endm
+
+;---------------------------------------------------
+; INCREMENTAR UN DATO DE 16 BITS
+; addr: dirección del dato en memoria.
+;---------------------------------------------------
+.macro INC16 addr
+    load %addr
+    inc
+    store %addr
+    load %addr+1
+    adc #0
+    store %addr+1
+.endm
+
+
+
+;---------------------------------------------------
+;-------------------- RUTINAS ----------------------
+;---------------------------------------------------
+.org 0x0100
+
+;---------------------------------------------------
+; RUTINA plot
+; Dibuja un carácter en pantalla en las coordenadas
+; definidas por (plot_x, plot_y).
+;
+; PARÁMETROS:
+; plot_x:       posición x
+; plot_y:       posición y
+; plot_char:    carácter que se va a dibujar
+;---------------------------------------------------
+plot:
+    ;plot_temp = plot_y
+    load plot_y
+    store plot_temp
+    load #0
+    store plot_temp+1
+
+    ; plot_temp << 7
+    SH16 plot_temp
+    SH16 plot_temp
+    SH16 plot_temp
+    SH16 plot_temp
+    SH16 plot_temp
+    SH16 plot_temp
+    SH16 plot_temp
+
+    ; plot_temp += plot_x
+    load plot_temp
+    add plot_x
+    store plot_temp
+    load plot_temp+1
+    adc #0
+    store plot_temp+1
+
+    load plot_char
+    out [plot_temp]
+ret
+
+.org 0x1E00
+
+;---------------------------------------------------
+; RUTINA controller
+; Contiene la lógica de ejecución del programa.
+;---------------------------------------------------
+controller:
+    load x
+    store prev_x
+
+    load y
+    store prev_y
+
+    ;x += hspeed
+    load x
+    add hspeed
+    store x
+
+    ;y += vspeed
+    load y
+    add vspeed
+    store y
+
+    load x
+    cmp #79
+    jc invert_x
+
+    load x
+    cmp #0
+    jnc invert_x
+    jmp check_y
+
+invert_x:
+    load hspeed
+    not
+    inc
+    store hspeed
+    
+    check_y:
+    load y
+    cmp #59
+    jz invert_y
+
+    load y
+    cmp #0
+    jz invert_y
+    jmp controller_end
+
+invert_y:
+    load vspeed
+    not
+    inc
+    store vspeed
+controller_end:
+ret
+
+;---------------------------------------------------
+; RUTINA draw
+; Dibujar en pantalla.
+;---------------------------------------------------
+draw:
+    ; Dibujar pelota en la posición actual
+    load current_char
+    inc
+    store current_char
+    store plot_char
+    load x
+    store plot_x
+    load y
+    store plot_y
+    call plot
+
+    ; Borrar la pelota de la posición previa
+    load #' '
+    store plot_char
+    load prev_x
+    store plot_x
+    load prev_y
+    store plot_y
+    call plot
+ret
+
+;---------------------------------------------------
+; RUTINA delay
+; Introduce un delay.
+;
+; PARÁMETROS
+; delay_value: valor de escalado del delay. Un valor
+; más grande introduce un retraso más largo.
+;---------------------------------------------------
+delay:
+    load #0
+    store delay_counter
+    store delay_counter+1
+delay_loop:
+
+    INC16 delay_counter
+
+    ; cmp16 delay_counter, delay_value
+    load delay_counter
+    cmp delay_value
+    jnz delay_loop
+    load delay_counter+1
+    cmp delay_value+1
+    jnz delay_loop
+ret
+
+;---------------------------------------------------
+; RUTINA clear_screen
+; Limpia la pantalla.
+;---------------------------------------------------
+clear_screen:
+    load #0
+    store clear_screen_counter
+    store clear_screen_counter+1
+clear_screen_loop:
+    load #' '
+    out [clear_screen_counter]
+    INC16 clear_screen_counter
+    load clear_screen_counter+1
+    cmp #0x20
+    jnz clear_screen_loop
+ret
+
+
+
+;---------------------------------------------------
+; RUTINA init
+; Inicializar las variables al comienzo del programa
+;---------------------------------------------------
+init:
+    load #0
+    store x
+    store y
+    store current_char
+
+    load #1
+    store hspeed
+    store vspeed
+
+    ; delay_value = 500
+    load #(500)&0xFF
+    store delay_value
+    load #(500>>8)&0xFF
+    store delay_value+1
+ret
+
+
+
+;---------------------------------------------------
+;--------------------- PROGRAMA --------------------
+;---------------------------------------------------
+start:
+    call init
+    call clear_screen
+loop:
+    call controller
+    call draw
+    call delay
+jmp loop
+
+
+
+;---------------------------------------------------
+;------------------- DATOS (RAM) -------------------
+;---------------------------------------------------
+.org 0x2000
+
+;---------------------------------------------------
+; VARIABLES PROGRAMA PRINCIPAL
+;---------------------------------------------------
+
+; Coordenadas de la pelota
+x: .r8 1
+y: .r8 1
+
+; Coordenadas previas de la pelota
+prev_x: .r8 1
+prev_y: .r8 1
+
+; Velocidad horizontal y vertical de la pelota
+hspeed: .r8 1
+vspeed: .r8 1
+
+; Carácter que representa la pelota
+current_char: .r8 1
+
+;---------------------------------------------------
+; VARIABLES RUTINA delay
+;---------------------------------------------------
+delay_counter: .r16 1
+delay_value: .r16 1
+
+;---------------------------------------------------
+; VARIABLES RUTINA plot
+;---------------------------------------------------
+plot_x: .r8 1
+plot_y: .r8 1
+plot_char: .r8 1
+plot_temp: .r16 1
+
+;---------------------------------------------------
+; VARIABLES RUTINA clear_screen
+;---------------------------------------------------
+clear_screen_counter: .r16 1
